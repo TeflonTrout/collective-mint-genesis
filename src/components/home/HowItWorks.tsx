@@ -41,32 +41,18 @@ const HowItWorks = () => {
           </p>
         </div>
         
-        <div className="relative mb-16">
-          {/* Connecting line */}
-          <div className="absolute left-1/2 top-0 bottom-0 w-1 bg-gradient-to-b from-emerald/60 to-emerald/20 hidden md:block"></div>
-          
+        {/* Steps - linear 1,2,3,4 display */}
+        <div className="grid gap-8 md:grid-cols-4 mb-16">
           {steps.map((step, index) => (
-            <div 
-              key={index} 
-              className={`relative z-10 flex flex-col md:flex-row md:items-center mb-8 last:mb-0 ${
-                index % 2 === 0 ? 'md:flex-row-reverse' : ''
-              }`}
+            <div
+              key={index}
+              className="flex flex-col items-center text-center group"
             >
-              {/* Step number */}
-              <div className="flex items-center justify-center w-10 h-10 rounded-full bg-emerald text-black font-bold absolute top-0 left-0 md:left-1/2 md:transform md:-translate-x-1/2 z-20">
+              <div className="w-12 h-12 flex items-center justify-center rounded-full bg-emerald text-black font-bold text-2xl shadow-md mb-4 transition-transform group-hover:scale-110 group-hover:shadow-emerald/40">
                 {index + 1}
               </div>
-              
-              {/* Content */}
-              <div className={`md:w-1/2 ${index % 2 === 0 ? 'md:pl-16' : 'md:pr-16 md:text-right'}`}>
-                <div className="bg-card p-6 rounded-xl border border-border shadow-lg transform transition-transform hover:-translate-y-1 hover:shadow-emerald/10">
-                  <h3 className="text-xl font-space font-bold mb-3">{step.title}</h3>
-                  <p className="text-muted-foreground">{step.description}</p>
-                </div>
-              </div>
-              
-              {/* Spacer */}
-              <div className="md:w-1/2"></div>
+              <h3 className="text-lg font-space font-bold mb-2">{step.title}</h3>
+              <p className="text-sm text-muted-foreground">{step.description}</p>
             </div>
           ))}
         </div>
@@ -115,3 +101,4 @@ const HowItWorks = () => {
 };
 
 export default HowItWorks;
+
