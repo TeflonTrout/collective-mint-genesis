@@ -29,7 +29,7 @@ const CampaignCard: React.FC<CampaignCardProps> = ({
   const percentFunded = Math.min((raised / goal) * 100, 100);
   
   return (
-    <div className="bg-card rounded-xl overflow-hidden border border-border hover:border-emerald/30 transition-all group">
+    <div className="bg-card rounded-xl overflow-hidden border border-border hover:border-emerald/30 transition-all duration-300 group hover:shadow-lg hover:shadow-emerald/10">
       <div className="relative aspect-video overflow-hidden">
         <img 
           src={imageUrl} 
@@ -55,7 +55,7 @@ const CampaignCard: React.FC<CampaignCardProps> = ({
             <span>{raised.toFixed(2)} SOL raised</span>
             <span className="font-medium">{percentFunded.toFixed(0)}%</span>
           </div>
-          <Progress value={percentFunded} className="h-2 bg-secondary" indicatorClassName="bg-emerald" />
+          <Progress value={percentFunded} className="h-2 bg-secondary" />
         </div>
         
         <div className="flex justify-between items-center">
@@ -68,11 +68,14 @@ const CampaignCard: React.FC<CampaignCardProps> = ({
           </div>
         </div>
         
-        <Button 
-          className="w-full bg-emerald hover:bg-emerald/90 text-black font-medium neon-glow"
-        >
-          Back This Project
-        </Button>
+        <div className="relative overflow-hidden">
+          <Button 
+            className="w-full bg-emerald hover:bg-emerald/90 text-black font-medium transition-all duration-300"
+          >
+            Back This Project
+          </Button>
+          <div className="absolute inset-0 opacity-0 group-hover:opacity-100 transition-opacity duration-300 bg-gradient-to-r from-transparent via-emerald/20 to-transparent -translate-x-full group-hover:translate-x-full transform transition-transform duration-1000"></div>
+        </div>
       </div>
     </div>
   );

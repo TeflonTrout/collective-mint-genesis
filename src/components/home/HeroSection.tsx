@@ -63,8 +63,11 @@ const HeroSection = () => {
               Fund the Next Wave of
             </span>
             <br />
-            <span className="bg-gradient-to-r from-emerald to-emerald/80 bg-clip-text text-transparent animate-pulse-glow inline-block">
-              Digital Art
+            <span className="relative">
+              <span className="bg-gradient-to-r from-emerald to-emerald/80 bg-clip-text text-transparent inline-block">
+                Digital Art
+              </span>
+              <span className="absolute inset-0 bg-gradient-to-r from-emerald to-emerald/80 blur-lg opacity-30 animate-pulse"></span>
             </span>
           </h1>
           
@@ -73,13 +76,24 @@ const HeroSection = () => {
           </p>
           
           <div className="flex flex-col sm:flex-row justify-center gap-4 pt-4">
-            <Button size="lg" className="bg-emerald hover:bg-emerald/90 text-black font-medium neon-glow">
+            <Button 
+              size="lg" 
+              className="bg-emerald hover:bg-emerald/90 text-black font-medium relative overflow-hidden group"
+            >
               <Link to="/explore" className="flex items-center">
-                Explore Projects <ArrowRight className="ml-2 h-4 w-4" />
+                Explore Projects <ArrowRight className="ml-2 h-4 w-4 transition-transform group-hover:translate-x-1" />
               </Link>
+              <span className="absolute inset-0 w-full h-full bg-gradient-to-r from-transparent via-white/20 to-transparent -translate-x-full group-hover:translate-x-full transform transition-transform duration-1000 ease-in-out"></span>
             </Button>
-            <Button size="lg" variant="outline" className="border-emerald text-emerald hover:bg-emerald/10 neon-glow">
-              <Link to="/create">Start Your Campaign</Link>
+            <Button 
+              size="lg" 
+              variant="outline" 
+              className="border-emerald text-emerald hover:bg-emerald/10 relative overflow-hidden group"
+            >
+              <Link to="/create" className="flex items-center">
+                Start Your Campaign
+              </Link>
+              <span className="absolute inset-0 w-full h-full bg-gradient-to-r from-transparent via-emerald/10 to-transparent -translate-x-full group-hover:translate-x-full transform transition-transform duration-1000 ease-in-out"></span>
             </Button>
           </div>
           

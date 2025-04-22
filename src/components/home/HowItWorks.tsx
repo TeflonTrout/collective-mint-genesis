@@ -41,17 +41,32 @@ const HowItWorks = () => {
           </p>
         </div>
         
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-16">
+        <div className="relative mb-16">
+          {/* Connecting line */}
+          <div className="absolute left-1/2 top-0 bottom-0 w-1 bg-gradient-to-b from-emerald/60 to-emerald/20 hidden md:block"></div>
+          
           {steps.map((step, index) => (
             <div 
               key={index} 
-              className="bg-card p-6 rounded-xl border border-border relative"
+              className={`relative z-10 flex flex-col md:flex-row md:items-center mb-8 last:mb-0 ${
+                index % 2 === 0 ? 'md:flex-row-reverse' : ''
+              }`}
             >
-              <div className="absolute -top-4 -left-4 w-8 h-8 rounded-full bg-emerald text-black font-bold flex items-center justify-center">
+              {/* Step number */}
+              <div className="flex items-center justify-center w-10 h-10 rounded-full bg-emerald text-black font-bold absolute top-0 left-0 md:left-1/2 md:transform md:-translate-x-1/2 z-20">
                 {index + 1}
               </div>
-              <h3 className="text-xl font-space font-bold mb-3">{step.title}</h3>
-              <p className="text-muted-foreground">{step.description}</p>
+              
+              {/* Content */}
+              <div className={`md:w-1/2 ${index % 2 === 0 ? 'md:pl-16' : 'md:pr-16 md:text-right'}`}>
+                <div className="bg-card p-6 rounded-xl border border-border shadow-lg transform transition-transform hover:-translate-y-1 hover:shadow-emerald/10">
+                  <h3 className="text-xl font-space font-bold mb-3">{step.title}</h3>
+                  <p className="text-muted-foreground">{step.description}</p>
+                </div>
+              </div>
+              
+              {/* Spacer */}
+              <div className="md:w-1/2"></div>
             </div>
           ))}
         </div>
@@ -62,11 +77,11 @@ const HowItWorks = () => {
               <h3 className="text-2xl font-space font-bold mb-4">Platform Features</h3>
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 {features.map((feature, index) => (
-                  <div key={index} className="flex items-start">
-                    <div className="mt-1 mr-2 h-5 w-5 rounded-full bg-emerald/20 flex items-center justify-center flex-shrink-0">
+                  <div key={index} className="flex items-start group">
+                    <div className="mt-1 mr-2 h-5 w-5 rounded-full bg-emerald/20 flex items-center justify-center flex-shrink-0 group-hover:bg-emerald/40 transition-colors">
                       <Check className="h-3 w-3 text-emerald" />
                     </div>
-                    <span className="text-sm">{feature}</span>
+                    <span className="text-sm group-hover:text-emerald/90 transition-colors">{feature}</span>
                   </div>
                 ))}
               </div>
@@ -82,8 +97,10 @@ const HowItWorks = () => {
                   <span>Average funding rate</span>
                   <span className="font-medium text-emerald">68%</span>
                 </div>
-                <div className="w-full h-2 bg-secondary rounded-full">
-                  <div className="h-full w-[68%] bg-emerald rounded-full"></div>
+                <div className="w-full h-2 bg-secondary rounded-full overflow-hidden">
+                  <div className="h-full w-[68%] bg-emerald rounded-full relative">
+                    <div className="absolute inset-0 bg-gradient-to-r from-transparent via-white/20 to-transparent animate-shimmer"></div>
+                  </div>
                 </div>
                 <p className="text-xs text-muted-foreground italic">
                   *Based on projects that meet our curation criteria
