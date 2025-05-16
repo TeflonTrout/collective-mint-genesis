@@ -11,7 +11,6 @@ const Index = () => {
         <FeaturedCampaigns />
         <HowItWorks />
       </main>
-      <Footer />
     </div>
   );
 };

@@ -1,73 +1,79 @@
-# Welcome to your Lovable project
+# 🧱 CollectiveMint
 
-## Project info
+**CollectiveMint** is a decentralized crowdfunding platform for NFT and Web3 projects, built on **Solana**.  
+It uses an **all-or-nothing smart contract model**, so creators only receive funds if their campaign meets its goal. Otherwise, backers are automatically refunded — no risk, no rugs.
 
-**URL**: https://lovable.dev/projects/df205766-f872-4b32-bc0b-562922213cf3
+---
 
-## How can I edit this code?
+## 🚀 Live Demo
 
-There are several ways of editing your application.
+- 🌐 [Live App](https://collective-mint.vercel.app)
+- 🎥 [Demo Video](https://your-demo-video-link.com)
 
-**Use Lovable**
+---
 
-Simply visit the [Lovable Project](https://lovable.dev/projects/df205766-f872-4b32-bc0b-562922213cf3) and start prompting.
+## 🔧 How It Works
 
-Changes made via Lovable will be committed automatically to this repo.
+1. **Creators** launch campaigns with:
+   - NFT metadata (images, supply, etc.)
+   - Funding goal in SOL
+   - Deadline (time-based expiration)
 
-**Use your preferred IDE**
+2. **Supporters** back the campaign by pledging SOL.
 
-If you want to work locally using your own IDE, you can clone this repo and push changes. Pushed changes will also be reflected in Lovable.
+3. If the campaign **meets its goal**:
+   - NFTs are minted to backers.
+   - SOL is released to the creator.
 
-The only requirement is having Node.js & npm installed - [install with nvm](https://github.com/nvm-sh/nvm#installing-and-updating)
+4. If the campaign **fails**:
+   - All funds are automatically refunded to backers.
+   - Nothing is minted. No one loses.
 
-Follow these steps:
+---
 
-```sh
-# Step 1: Clone the repository using the project's Git URL.
-git clone <YOUR_GIT_URL>
+## 🧪 Test Campaigns
 
-# Step 2: Navigate to the project directory.
-cd <YOUR_PROJECT_NAME>
+You can interact with live Devnet campaigns:
+- ✅ Fully funded — shows successful minting.
+- ❌ Underfunded — shows refunding behavior.
+- ⌛ In progress — shows active campaign with countdown.
 
-# Step 3: Install the necessary dependencies.
-npm i
+Try funding, minting, and refunding on Devnet via the live app.
 
-# Step 4: Start the development server with auto-reloading and an instant preview.
-npm run dev
-```
+---
 
-**Edit a file directly in GitHub**
+## 🛠️ Tech Stack
 
-- Navigate to the desired file(s).
-- Click the "Edit" button (pencil icon) at the top right of the file view.
-- Make your changes and commit the changes.
+| Layer        | Tech                             |
+|--------------|----------------------------------|
+| Frontend     | Next.js, Tailwind CSS, TypeScript |
+| Wallet       | Solana Wallet Adapter (Phantom, etc.) |
+| Smart Contract | Solana + Anchor Framework       |
+| Token Standard | SPL Tokens + Metaplex NFTs     |
+| Hosting      | Vercel + Solana Devnet           |
 
-**Use GitHub Codespaces**
+---
 
-- Navigate to the main page of your repository.
-- Click on the "Code" button (green button) near the top right.
-- Select the "Codespaces" tab.
-- Click on "New codespace" to launch a new Codespace environment.
-- Edit files directly within the Codespace and commit and push your changes once you're done.
+## 📄 Smart Contracts
 
-## What technologies are used for this project?
+- All funding logic is handled on-chain via **Anchor**.
+- Uses **PDAs (Program Derived Addresses)** for campaign escrow.
+- Mint gating and refunding logic is 100% decentralized.
 
-This project is built with:
+You can view and interact with the contracts on Devnet.
 
-- Vite
-- TypeScript
-- React
-- shadcn-ui
-- Tailwind CSS
+---
 
-## How can I deploy this project?
+## 🧭 Roadmap (Post-MVP)
 
-Simply open [Lovable](https://lovable.dev/projects/df205766-f872-4b32-bc0b-562922213cf3) and click on Share -> Publish.
+- 🏆 Tiered reward levels
+- 🧑 Creator profile dashboards
+- 🧭 Campaign discovery filters (by category/status)
+- 🌉 Cross-chain support (Ethereum, Base)
+- 🗳️ DAO-like voting for backer governance
 
-## Can I connect a custom domain to my Lovable project?
+---
 
-Yes, you can!
+## 📜 License
 
-To connect a domain, navigate to Project > Settings > Domains and click Connect Domain.
-
-Read more here: [Setting up a custom domain](https://docs.lovable.dev/tips-tricks/custom-domain#step-by-step-guide)
+MIT License © 2025 CollectiveMint

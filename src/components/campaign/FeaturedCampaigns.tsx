@@ -14,6 +14,7 @@ const featuredCampaigns = [
     raised: 120.5,
     goal: 200,
     daysLeft: 14,
+    expiration: "2025-06-30 12:00",
     creator: "0x8Fc...3B6a",
   },
   {
@@ -25,6 +26,7 @@ const featuredCampaigns = [
     raised: 89.3,
     goal: 150,
     daysLeft: 21,
+    expiration: "2025-06-30 12:00",
     creator: "0x2Bd...9C4c",
   },
   {
@@ -36,6 +38,7 @@ const featuredCampaigns = [
     raised: 45.8,
     goal: 100,
     daysLeft: 12,
+    expiration: "2025-06-30 12:00",
     creator: "0x6Ae...1F7d",
   },
   {
@@ -47,6 +50,7 @@ const featuredCampaigns = [
     raised: 310.2,
     goal: 500,
     daysLeft: 30,
+    expiration: "2025-06-30 12:00",
     creator: "0x3Df...7E2b",
   },
   {
@@ -58,6 +62,7 @@ const featuredCampaigns = [
     raised: 78.6,
     goal: 120,
     daysLeft: 9,
+    expiration: "2025-06-30 12:00",
     creator: "0x9Ca...4D1e",
   },
   {
@@ -69,6 +74,7 @@ const featuredCampaigns = [
     raised: 155.4,
     goal: 300,
     daysLeft: 18,
+    expiration: "2025-06-30 12:00",
     creator: "0x4Ab...8F3c",
   },
 ];
@@ -142,12 +148,14 @@ const FeaturedCampaigns = () => {
               <CampaignCard
                 key={campaign.id}
                 id={campaign.id}
+                campaignId="0x1234"
                 title={campaign.title}
                 description={campaign.description}
                 imageUrl={campaign.imageUrl}
                 raised={campaign.raised}
                 goal={campaign.goal}
                 daysLeft={campaign.daysLeft}
+                expiration={campaign.expiration}
                 creator={campaign.creator}
               />
             ))}

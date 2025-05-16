@@ -9,6 +9,7 @@ import Index from "./pages/Index";
 import Create from "./pages/Create";
 import About from "./pages/About";
 import Docs from "./pages/Docs";
+import Archived from "./pages/Archived";
 import NotFound from "./pages/NotFound";
 import Explore from "./pages/Explore";
 
@@ -23,8 +24,10 @@ import { PhantomWalletAdapter } from "@solana/wallet-adapter-wallets";
 // Pull in the default styles for the modal (only needs to be imported once)
 import "@solana/wallet-adapter-react-ui/styles.css";
 import Navbar from "./components/layout/Navbar";
+import Footer from "./components/layout/Footer";
 import Campaign from "./pages/Campaign";
 import Profile from "./pages/Profile";
+import AdminPage from "./pages/Admin";
 
 const network = "https://api.devnet.solana.com";
 
@@ -50,13 +53,16 @@ const App = () => {
                   <Route path="/about" element={<About />} />
                   <Route path="/docs" element={<Docs />} />
                   <Route path="/explore" element={<Explore />} />
+                  <Route path="/archive" element={<Archived />} />
                   <Route path="/campaign/:campaignId" element={<Campaign />} />
                   <Route
                     path="/profile/:walletPublicKey"
                     element={<Profile />}
                   />
                   <Route path="*" element={<NotFound />} />
+                  <Route path="/admin" element={<AdminPage />} />
                 </Routes>
+                <Footer />
               </BrowserRouter>
             </TooltipProvider>
           </WalletModalProvider>

@@ -1,14 +1,7 @@
 // src/pages/Create.tsx
-import React, { useState, useMemo } from "react";
+import { useState, useMemo, useRef, useEffect } from "react";
 import { useConnection, useAnchorWallet } from "@solana/wallet-adapter-react";
-import {
-  AnchorProvider,
-  Program,
-  utils,
-  web3,
-  Idl,
-  BN,
-} from "@project-serum/anchor";
+import { AnchorProvider, Program, utils, Idl, BN } from "@project-serum/anchor";
 import { PublicKey, SystemProgram } from "@solana/web3.js";
 import { supabase } from "@/lib/supabase";
 import { IDL } from "../constants/idl";
@@ -18,20 +11,31 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { PROGRAM_ID as PDA_ID } from "../constants/programID";
 import { nanoid } from "nanoid";
-import { addDays, format } from "date-fns";
+import { addDays, addMinutes, format, formatDate } from "date-fns";
+import { TZDate } from "@date-fns/tz";
 import MDEditor from "@uiw/react-md-editor";
+import {
+  FaDiscord,
+  FaInstagram,
+  FaLink,
+  FaTelegram,
+  FaXTwitter,
+} from "react-icons/fa6";
+import { Tier } from "@/types/supabase";
+import { toast } from "sonner";
 
 const PROGRAM_ID = new PublicKey(PDA_ID);
 const CAMPAIGN_SEED = "campaign";
 const VAULT_SEED = "vault";
 const LAMPORTS_PER_SOL = 1000000000;
 
-interface Tier {
-  amount: number;
-  title: string;
-  description: string;
-  nftRewardCount: number;
-}
+const ALL_PLATFORMS = [
+  { key: "x", label: "X", icon: <FaXTwitter /> },
+  { key: "website", label: "Website", icon: <FaLink /> },
+  { key: "discord", label: "Discord", icon: <FaDiscord /> },
+  { key: "telegram", label: "Telegram", icon: <FaTelegram /> },
+  { key: "instagram", label: "Instagram", icon: <FaInstagram /> },
+];
 
 export default function Create() {
   const { connection } = useConnection();
@@ -45,6 +49,9 @@ export default function Create() {
   const [shortDescription, setShortDescription] = useState("");
   const [longDescription, setLongDescription] = useState("");
   const [imageUrl, setImageUrl] = useState("");
+  const [socials, setSocials] = useState<{ platform: string; url: string }[]>([
+    { platform: "x", url: "" },
+  ]);
   const [pendingImages, setPendingImages] = useState<File[]>([]);
   const [daysLeft, setDaysLeft] = useState<number>(30);
   const [goal, setGoal] = useState<number>(10);
@@ -53,6 +60,46 @@ export default function Create() {
   ]);
   const [isLoading, setLoading] = useState(false);
   const owner = wallet?.publicKey.toBase58() || "";
+
+  // dropdown open state
+  const [adding, setAdding] = useState(false);
+  const dropdownRef = useRef<HTMLDivElement>(null);
+
+  // Close dropdown when clicking outside
+  useEffect(() => {
+    if (!adding) return;
+    const handleClickOutside = (e: MouseEvent) => {
+      if (
+        dropdownRef.current &&
+        !dropdownRef.current.contains(e.target as Node)
+      ) {
+        setAdding(false);
+      }
+    };
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => {
+      document.removeEventListener("mousedown", handleClickOutside);
+    };
+  }, [adding]);
+
+  // add a new social link
+  const addPlatform = (key: string) => {
+    setSocials((prev) => [...prev, { platform: key, url: "" }]);
+    setAdding(false);
+  };
+
+  // update a URL in the list
+  const updateUrl = (idx: number, url: string) =>
+    setSocials((prev) => prev.map((s, i) => (i === idx ? { ...s, url } : s)));
+
+  // remove a link
+  const removeLink = (idx: number) =>
+    setSocials((prev) => prev.filter((_, i) => i !== idx));
+
+  // platforms not yet added
+  const available = ALL_PLATFORMS.map((p) => p.key).filter(
+    (k) => !socials.some((s) => s.platform === k)
+  );
 
   // Anchor provider & program instances
   const provider = useMemo(
@@ -97,7 +144,7 @@ export default function Create() {
 
   const handleSubmit = async () => {
     if (!wallet || !program) {
-      alert("Please connect your wallet first.");
+      toast.error("Please connect your wallet first.");
       return;
     }
     setLoading(true);
@@ -120,12 +167,22 @@ export default function Create() {
         PROGRAM_ID
       );
 
-      // 2️⃣ On-chain initialize
+      const now = new Date();
+      const expiration = addDays(now, daysLeft);
+      const expirationUnix = Math.floor(expiration.getTime() / 1000);
+      const expirationUtcFormatted = expiration.toUTCString();
+
+      const confirmation = confirm(
+        `Your campaign will expire on ${expirationUtcFormatted} ${expirationUnix}. Continue?`
+      );
+
+      if (!confirmation) return;
+
       await program.methods
         .initialize(
           campaignId,
           new BN(goal * LAMPORTS_PER_SOL),
-          new BN(daysLeft)
+          new BN(expirationUnix)
         )
         .accounts({
           campaign: campaignPda,
@@ -135,7 +192,7 @@ export default function Create() {
         })
         .rpc();
 
-      // 3️⃣ Upload all pendingImages *now that we know campaignPda*
+      // 3️⃣ Upload all pendingImages
       const image_urls: string[] = [];
       for (const file of pendingImages) {
         const path = `campaign-${campaignPda.toBase58()}/${file.name}`;
@@ -154,7 +211,7 @@ export default function Create() {
 
       const mainImage = image_urls.length > 0 ? image_urls[0] : "";
 
-      // 4️⃣ Single INSERT: include everything, *including* the array of URLs
+      // 4️⃣ Insert metadata into Supabase
       const { error: sbError } = await supabase.from("campaigns").insert({
         id: campaignPda.toBase58(),
         campaign_id: campaignId,
@@ -163,18 +220,20 @@ export default function Create() {
         short_description: shortDescription,
         long_description: longDescription,
         image_url: mainImage,
-        image_urls: image_urls,
+        image_urls,
         campaign_length: daysLeft,
-        expiration: addDays(new Date(), daysLeft),
+        expiration: expirationUtcFormatted,
         goal_sol: goal,
         tiers,
+        socials,
       });
       if (sbError) throw sbError;
 
-      alert("Campaign successfully launched!");
+      toast.success("Campaign created successfully!");
+      window.location.href = "/explore";
     } catch (e) {
       console.error(e);
-      alert("Error creating campaign: " + e.message);
+      toast.error("Error creating campaign: " + e.message);
     } finally {
       setLoading(false);
     }
@@ -182,21 +241,24 @@ export default function Create() {
 
   return (
     <div className="min-h-screen bg-charcoal text-foreground flex flex-col">
-      <main className="flex-grow pt-24 pb-12">
+      <main className="flex-grow py-12">
         <div className="container px-4 md:px-8 max-w-5xl mx-auto">
           <div className="bg-card rounded-xl border border-border p-8 space-y-6">
-            <h1 className="text-3xl font-bold">Create Your Campaign</h1>
+            <h1 className="text-3xl text-emerald font-bold">
+              Create Your Campaign
+            </h1>
 
             {/* Step 1: Basic Info */}
             {step === 1 && (
               <div className="space-y-4">
-                <div>
+                <div className="flex flex-col justify-start gap-2">
                   <Label htmlFor="title">Title</Label>
                   <Input
                     id="title"
                     value={title}
                     onChange={(e) => setTitle(e.target.value)}
                     placeholder="Digital Renaissance Collection"
+                    required
                   />
                 </div>
                 <div className="flex flex-col justify-start gap-2">
@@ -212,6 +274,7 @@ export default function Create() {
                     maxLength={50}
                     onChange={(e) => setShortDescription(e.target.value)}
                     placeholder="A bold project tagline!"
+                    required
                   />
                   <p className="text-xs text-muted-foreground">
                     {shortDescription.length} / 50 characters
@@ -229,8 +292,74 @@ export default function Create() {
                   />
                 </div>
 
+                <div className="flex flex-col space-y-4">
+                  <Label>Social Links</Label>
+
+                  {socials.map((s, idx) => {
+                    const { label, icon } = ALL_PLATFORMS.find(
+                      (p) => p.key === s.platform
+                    )!;
+                    return (
+                      <div key={s.platform} className="flex items-center gap-2">
+                        <div className="text-2xl">{icon}</div>
+                        <Input
+                          type="url"
+                          value={s.url}
+                          placeholder={label}
+                          onChange={(e) => updateUrl(idx, e.target.value)}
+                          className="flex-1"
+                        />
+                        <Button
+                          variant="destructive"
+                          size="icon"
+                          onClick={() => removeLink(idx)}
+                        >
+                          ×
+                        </Button>
+                      </div>
+                    );
+                  })}
+
+                  {available.length > 0 && (
+                    <div className="relative inline-block" ref={dropdownRef}>
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        onClick={() => setAdding((a) => !a)}
+                      >
+                        + Add Link
+                      </Button>
+
+                      {adding && (
+                        <div className="absolute left-0 mt-1 w-48 bg-background p-2 border border-border rounded shadow-lg z-10">
+                          {available.map((key) => {
+                            const { label, icon } = ALL_PLATFORMS.find(
+                              (p) => p.key === key
+                            )!;
+                            return (
+                              <button
+                                key={key}
+                                className="flex items-center gap-2 w-full px-2 py-1 hover:bg-accent rounded"
+                                onClick={() => addPlatform(key)}
+                              >
+                                <span className="text-xl">{icon}</span>
+                                <span>{label}</span>
+                              </button>
+                            );
+                          })}
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </div>
+
                 <div className="space-y-2 flex flex-col">
-                  <Label htmlFor="imageUrl">Image URL</Label>
+                  <Label htmlFor="imageUrl">
+                    Image URL{" "}
+                    <span className="text-sm text-muted-foreground">
+                      (We highly recommend using a 16:9 aspect ratio)
+                    </span>
+                  </Label>
                   <Input
                     type="file"
                     accept="image/*"
@@ -258,7 +387,14 @@ export default function Create() {
                           key={idx}
                           className="flex items-center justify-between"
                         >
-                          <span className="text-sm">{file.name}</span>
+                          <div className="flex items-center gap-6">
+                            <img
+                              src={URL.createObjectURL(file)}
+                              alt={file.name}
+                              className="w-16 h-16 object-cover rounded-md"
+                            />
+                            <span className="text-sm">{file.name}</span>
+                          </div>
                           <Button
                             variant="destructive"
                             size="sm"
@@ -301,6 +437,8 @@ export default function Create() {
                       onChange={(e) => setDaysLeft(Number(e.target.value))}
                     >
                       <option value={0}>0 (Test)</option>
+                      <option value={0.08}>5 Min</option>
+                      <option value={1}>1 (Test)</option>
                       <option value={30}>30</option>
                       <option value={60}>60</option>
                       <option value={90}>90</option>

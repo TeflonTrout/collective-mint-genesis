@@ -3,15 +3,22 @@ import { Link } from "react-router-dom";
 import { Menu, X, Wallet } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { WalletMultiButton } from "@solana/wallet-adapter-react-ui";
+import { useAnchorWallet } from "@solana/wallet-adapter-react";
 
 const Navbar = () => {
+  const wallet = useAnchorWallet();
   const [isOpen, setIsOpen] = useState(false);
 
   return (
-    <nav className="py-4 px-4 md:px-8 w-full bg-charcoal/95 backdrop-blur-sm border-b border-border z-50">
+    <nav className="py-4 px-4 relative md:px-8 w-full bg-charcoal/95 backdrop-blur-sm border-b border-border z-50">
       <div className="max-w-7xl mx-auto flex justify-between items-center">
         <div className="flex items-center">
-          <Link to="/" className="flex items-center">
+          <Link to="/" className="flex items-center justify-center">
+            <img
+              src="/CM.png"
+              alt="CollectiveMint"
+              className="w-10 h-10 mr-1 -mt-2"
+            />
             <span className="text-white text-xl font-space font-bold">
               Collective
             </span>
@@ -34,6 +41,12 @@ const Navbar = () => {
             className="text-foreground hover:text-emerald transition-colors"
           >
             Create
+          </Link>
+          <Link
+            to="/archive"
+            className="text-foreground hover:text-emerald transition-colors"
+          >
+            Archive
           </Link>
           <Link
             to="/docs"
@@ -62,6 +75,14 @@ const Navbar = () => {
               }}
             />
           </div>
+          {wallet && (
+            <Link
+              to={`/profile/${wallet?.publicKey}`}
+              className="text-foreground hover:text-emerald transition-colors"
+            >
+              My Profile
+            </Link>
+          )}
         </div>
 
         {/* Mobile menu button */}

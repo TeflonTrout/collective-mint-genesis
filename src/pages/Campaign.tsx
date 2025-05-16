@@ -11,29 +11,45 @@ import { PROGRAM_ID as PDA_ID } from "../constants/programID";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import rehypeSanitize from "rehype-sanitize";
-import { formatDistanceToNowStrict } from "date-fns";
+import {
+  differenceInDays,
+  format,
+  formatDistanceToNowStrict,
+  isFuture,
+} from "date-fns";
+import { Calendar } from "lucide-react";
+import { SupabaseCampaign } from "@/types/supabase";
+import BackersTab from "@/components/campaign/BackersTab";
+import Heading from "@/components/campaign/Heading";
+import { toast } from "sonner";
+import { Swiper, SwiperSlide } from "swiper/react";
+import { Navigation, Pagination } from "swiper/modules";
+import "swiper/css";
+import "swiper/css/navigation";
+import "swiper/css/pagination";
+import { FaSpinner } from "react-icons/fa6";
 
 const PROGRAM_ID = new PublicKey(PDA_ID);
 
-interface SupabaseCampaign {
-  id: string;
-  title: string;
-  short_description: string;
-  long_description: string;
-  image_url: string;
-  image_urls: string[];
-  days_left: number;
-  goal_sol: number;
-  expiration: string;
-  campaign_id: string;
-  tiers: Tier[];
+export interface Backer {
+  publicKey: PublicKey;
+  account: Account;
 }
 
-interface Tier {
-  amount: number;
-  title: string;
-  description: string;
-  nftRewardCount: number;
+export interface Account {
+  campaign: string;
+  contributor: PublicKey;
+  amount: BN;
+  refunded: boolean;
+}
+
+export interface Rating {
+  id: string;
+  campaign_id: string;
+  comment: string;
+  contributor: string;
+  score: number;
+  created_at: string;
 }
 
 export default function Campaign() {
@@ -42,6 +58,8 @@ export default function Campaign() {
   const wallet = useAnchorWallet();
 
   const [meta, setMeta] = useState<SupabaseCampaign | null>(null);
+  const [backers, setBackers] = useState<Backer[]>([]);
+  const [ratings, setRatings] = useState<Rating[]>([]);
   const [onChain, setOnChain] = useState<{
     amountRaised: number;
     goal: number;
@@ -50,7 +68,7 @@ export default function Campaign() {
     finalized: boolean;
   } | null>(null);
   const [loading, setLoading] = useState(true);
-  const [activeTab, setActiveTab] = useState<"description" | "info" | "faq">(
+  const [activeTab, setActiveTab] = useState<"description" | "faq" | "backers">(
     "description"
   );
 
@@ -74,13 +92,24 @@ export default function Campaign() {
         return;
       }
       setMeta(data!);
+
+      const { data: ratings, error: ratingsError } = await supabase
+        .from("ratings")
+        .select("*")
+        .eq("campaign_id", campaignId);
+      setRatings(ratings);
       const account = await program.account.campaign.fetch(data.id);
+      const claims = await program.account.claim.all();
+      const filtered = claims.filter(
+        (a) => a.account.campaign.toBase58() === campaignId
+      );
+      setBackers(filtered);
 
       // 3️⃣ Fetch on-chain account
       setOnChain({
-        amountRaised: account.amountRaised.toNumber() / 1e9,
+        amountRaised: account.amountRaised.toNumber() / LAMPORTS_PER_SOL,
         owner: account.owner.toBase58(),
-        goal: account.goal.toNumber(),
+        goal: account.goal.toNumber() / LAMPORTS_PER_SOL,
         deadline: account.deadline.toNumber(),
         finalized: account.finalized,
       });
@@ -91,34 +120,43 @@ export default function Campaign() {
     fetchData();
   }, [campaignId, connection, wallet]);
 
-  const handleContributeTier = async (amount: number, tierIndex: number) => {
+  if (!onChain) return null;
+  const now = Date.now() / 1000;
+  const daysLeft = formatDistanceToNowStrict(
+    new Date(onChain?.deadline * 1000)
+  );
+  const isFunded = onChain.amountRaised >= onChain.goal;
+  const isAlmostUp =
+    !isFunded &&
+    differenceInDays(new Date(onChain.deadline * 1000), new Date()) < 3 &&
+    isFuture(new Date(onChain.deadline * 1000));
+
+  const handleContributeTier = async (
+    amount: number,
+    tierIndex: number,
+    nftsDue: number
+  ) => {
     if (!wallet) throw new Error("Connect your wallet");
     try {
-      const idBytes = utils.bytes.utf8.encode(meta.campaign_id);
-
-      if (amount != meta.tiers[tierIndex].amount) {
-        alert(
-          `Please contribute ${meta.tiers[tierIndex].amount} SOL to tier #${
-            tierIndex + 1
-          }`
-        );
+      // enforce exact per‐tier amount
+      if (amount !== meta.tiers[tierIndex].amount) {
+        toast.error(`Contribute exactly ${meta.tiers[tierIndex].amount} SOL`);
         return;
       }
 
+      const idBytes = utils.bytes.utf8.encode(meta.campaign_id);
       const [campaignPda] = await PublicKey.findProgramAddress(
         [
           Buffer.from("campaign"),
           new PublicKey(onChain.owner).toBuffer(),
-          idBytes,
+          Buffer.from(idBytes),
         ],
         PROGRAM_ID
       );
-      // derive vault PDA
       const [vaultPda] = await PublicKey.findProgramAddress(
         [Buffer.from("vault"), campaignPda.toBuffer()],
         PROGRAM_ID
       );
-
       const [claimPda] = await PublicKey.findProgramAddress(
         [
           Buffer.from("claim"),
@@ -127,168 +165,254 @@ export default function Campaign() {
         ],
         PROGRAM_ID
       );
+      const [founderVaultPda] = await PublicKey.findProgramAddress(
+        [Buffer.from("founder_vault")],
+        PROGRAM_ID
+      );
 
+      // ✏️ Pass both amount & nfts_due here:
       await program.methods
-        .contribute(new BN(amount * LAMPORTS_PER_SOL))
+        .contribute(new BN(amount * LAMPORTS_PER_SOL), new BN(nftsDue))
         .accounts({
           campaign: campaignPda,
           vault: vaultPda,
           contributor: wallet.publicKey,
           claim: claimPda,
+          owner: meta.owner,
+          founderVault: founderVaultPda,
           systemProgram: SystemProgram.programId,
         })
         .rpc();
-      // 2. record tierIndex off-chain (if you want), or just let the claim flow handle it
-      alert(`Contributed ${amount} SOL to tier #${tierIndex + 1}`);
-    } catch (error) {
-      console.error(error);
+
+      // now record on‐chain + off‐chain
+      const { error } = await supabase.from("claims").upsert(
+        {
+          campaign_id: meta.campaign_id,
+          contributor: wallet.publicKey.toBase58(),
+          amount: amount * LAMPORTS_PER_SOL,
+          nfts_due: nftsDue,
+          refunded: false,
+        },
+        { onConflict: "campaign_id, contributor" }
+      );
+
+      if (error) console.error("upsert error", error);
+
+      toast.success("Contribution submitted.");
+      window.location.reload();
+    } catch (e) {
+      console.error("Error contributing:", e);
+      toast.error("Error contributing.");
     }
   };
 
-  if (loading || !meta || !onChain) return <p>Loading…</p>;
+  if (loading || !meta || !onChain)
+    return (
+      <div className="text-center py-16">
+        <h1 className="flex items-center justify-center gap-2 text-2xl font-bold mb-4">
+          Loading <FaSpinner className="animate-spin" />
+        </h1>
+      </div>
+    );
 
   // Compute status & days left
-  const now = Date.now() / 1000;
   const status =
     now > onChain.deadline
       ? onChain.amountRaised >= onChain.goal
         ? "Funded"
         : "Failed"
       : "Ongoing";
-  const daysLeft = Math.max(0, Math.ceil((onChain.deadline - now) / 86400));
 
   return (
     <div className="container mx-auto py-12">
-      <h1 className="text-3xl font-bold mb-6">{meta.title}</h1>
+      <div className="flex text-2xl items-center justify-between">
+        <Heading
+          meta={meta}
+          onChain={onChain}
+          ratings={ratings}
+          reviewCount={ratings.length}
+        />
+      </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
-        {/* Left: main campaign info */}
-        <div className="md:col-span-2 space-y-6">
-          <img
-            src={meta.image_url}
-            alt={meta.title}
-            className="w-full h-80 object-cover rounded-lg"
-          />
-          <div className="space-y-2">
-            <div className="w-full bg-gray-700 h-4 rounded">
-              <div
-                className="bg-emerald h-4 rounded"
-                style={{
-                  width: `${(onChain.amountRaised / onChain.goal) * 100}%`,
-                }}
-              />
+      <div className="mx-auto">
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 lg:gap-8">
+          {/* ── Left: main campaign info ── */}
+          <div className="lg:col-span-2 space-y-6">
+            <div className="relative w-auto h-auto max-h-[500px] aspect-auto rounded-lg overflow-hidden z-0">
+              {meta.image_urls?.length > 1 ? (
+                <Swiper
+                  modules={[Navigation, Pagination]}
+                  spaceBetween={10}
+                  slidesPerView={1}
+                  navigation={{
+                    nextEl: `.next-${meta.id}`,
+                    prevEl: `.prev-${meta.id}`,
+                  }}
+                  pagination={{ clickable: true }}
+                  className="h-full w-full"
+                >
+                  {meta.image_urls.map((img, index) => (
+                    <SwiperSlide key={index}>
+                      <img
+                        src={img}
+                        alt={`${meta.title} ${index + 1}`}
+                        className="w-full h-full object-cover rounded-lg"
+                      />
+                    </SwiperSlide>
+                  ))}
+                </Swiper>
+              ) : (
+                <img
+                  src={meta.image_url}
+                  alt={meta.title}
+                  className="w-full h-full object-contain rounded-lg"
+                />
+              )}
+
+              {/* Navigation buttons */}
+              {meta.image_urls?.length > 1 && (
+                <>
+                  <button
+                    className={`prev-${meta.id} swiper-button-prev absolute left-2 top-1/2 transform -translate-y-1/2 z-10 text-emerald`}
+                  />
+                  <button
+                    className={`next-${meta.id} swiper-button-next absolute right-2 top-1/2 transform -translate-y-1/2 z-10 text-emerald`}
+                  />
+                </>
+              )}
+
+              {isFunded && (
+                <div className="absolute top-2 left-2 bg-emerald text-white px-3 py-1 rounded-full shadow-lg font-bold text-sm sm:text-base flex items-center z-10">
+                  100% Funded!
+                </div>
+              )}
+              {isAlmostUp && (
+                <div className="absolute top-2 left-2 bg-red-600 text-white px-3 py-1 rounded-full shadow-lg font-bold text-sm sm:text-base flex items-center z-10">
+                  Only {daysLeft} left!
+                </div>
+              )}
             </div>
-            <div className="flex justify-between">
-              <p className="text-sm text-muted-foreground">
-                {onChain.amountRaised} / {onChain.goal / LAMPORTS_PER_SOL} SOL
-                raised
-              </p>
-              <p className="text-sm text-muted-foreground">
-                {((onChain.amountRaised / onChain.goal) * 100).toFixed(0)}%
-              </p>
+
+            {/* Progress bar */}
+            <div className="space-y-2">
+              <div className="w-full bg-gray-700 h-3 rounded">
+                <div
+                  className="bg-emerald h-3 rounded"
+                  style={{
+                    width: `${(onChain.amountRaised / onChain.goal) * 100}%`,
+                    minWidth: onChain.amountRaised > 0 ? "5%" : "0%",
+                  }}
+                />
+              </div>
+              <div className="flex justify-between text-xs sm:text-sm text-muted-foreground">
+                <span>
+                  {onChain.amountRaised} / {onChain.goal} SOL raised
+                </span>
+                <span>
+                  {((onChain.amountRaised / onChain.goal) * 100).toFixed(1)}%
+                </span>
+              </div>
+              <div className="flex flex-col sm:flex-row sm:items-center sm:space-x-2 text-white text-xs sm:text-lg text-muted-foreground">
+                <Calendar className="inline-block" />
+                {isFuture(meta.expiration) ? (
+                  <>
+                    <span className="font-bold">
+                      {formatDistanceToNowStrict(meta.expiration)} left
+                    </span>
+                    <span className="hidden sm:inline text-muted-foreground">
+                      (Ends {format(meta.expiration, "MMM dd, yyyy h:mm a")})
+                    </span>
+                  </>
+                ) : (
+                  <span className="font-bold text-red-600">Expired</span>
+                )}
+              </div>
             </div>
-            <div>{formatDistanceToNowStrict(meta.expiration)} left</div>
-          </div>
-          <div className="flex space-x-4 border-b border-border mb-6">
-            <button
-              className={`py-2 px-4 ${
-                activeTab === "description"
-                  ? "border-b-2 border-emerald font-bold"
-                  : "text-muted-foreground"
-              }`}
-              onClick={() => setActiveTab("description")}
-            >
-              Description
-            </button>
-            <button
-              className={`py-2 px-4 ${
-                activeTab === "info"
-                  ? "border-b-2 border-emerald font-bold"
-                  : "text-muted-foreground"
-              }`}
-              onClick={() => setActiveTab("info")}
-            >
-              Info
-            </button>
-            <button
-              className={`py-2 px-4 ${
-                activeTab === "faq"
-                  ? "border-b-2 border-emerald font-bold"
-                  : "text-muted-foreground"
-              }`}
-              onClick={() => setActiveTab("faq")}
-            >
-              FAQ
-            </button>
-          </div>
 
-          <div className="prose prose-invert max-w-none">
-            {activeTab === "description" && (
-              <ReactMarkdown
-                remarkPlugins={[remarkGfm]}
-                rehypePlugins={[rehypeSanitize]}
-              >
-                {meta.long_description}
-              </ReactMarkdown>
-            )}
-
-            {activeTab === "info" && (
-              <div>
-                <p>
-                  <strong>Creator:</strong> {onChain.owner}
-                </p>
-                <p>
-                  <strong>Socials:</strong> (Add socials field later in your
-                  metadata)
-                </p>
-                <p>
-                  <strong>Website:</strong> (Add website field later in your
-                  metadata)
-                </p>
+            {/* Tabs */}
+            <div className="bg-card border border-border rounded-lg p-4 sm:p-6">
+              <div className="flex space-x-4 border-b border-border mb-4">
+                <button
+                  className={`py-2 px-3 text-sm font-semibold ${
+                    activeTab === "description"
+                      ? "border-b-2 border-emerald text-white"
+                      : "text-muted-foreground"
+                  }`}
+                  onClick={() => setActiveTab("description")}
+                >
+                  Description
+                </button>
+                <button
+                  className={`py-2 px-3 text-sm font-semibold ${
+                    activeTab === "backers"
+                      ? "border-b-2 border-emerald text-white"
+                      : "text-muted-foreground"
+                  }`}
+                  onClick={() => setActiveTab("backers")}
+                >
+                  Backers
+                </button>
               </div>
-            )}
-
-            {activeTab === "faq" && (
-              <div>
-                <h3>Frequently Asked Questions</h3>
-                <p>Q: How do I contribute?</p>
-                <p>
-                  A: Choose a reward tier on the right and confirm your
-                  transaction!
-                </p>
-                <p>Q: What happens if the campaign fails?</p>
-                <p>
-                  A: All contributors will be eligible for a refund if the
-                  campaign doesn't reach its goal.
-                </p>
+              <div className="prose prose-invert max-w-none text-sm sm:text-base">
+                {activeTab === "description" && (
+                  <ReactMarkdown
+                    remarkPlugins={[remarkGfm]}
+                    rehypePlugins={[rehypeSanitize]}
+                  >
+                    {meta.long_description}
+                  </ReactMarkdown>
+                )}
+                {activeTab === "faq" && (
+                  <div>
+                    <h3>Frequently Asked Questions</h3>
+                    {/* ... */}
+                  </div>
+                )}
+                {activeTab === "backers" && <BackersTab backers={backers} />}
               </div>
-            )}
-          </div>
-        </div>
-
-        {/* Right: rewards & actions */}
-        <div className="bg-card border border-border rounded-lg p-6 space-y-6">
-          <h2 className="text-xl font-semibold">Support & Reward</h2>
-
-          {meta.tiers.map((tier, idx) => (
-            <div
-              key={idx}
-              className="flex justify-between items-center py-4 border-b last:border-b-0"
-            >
-              <div>
-                <p className="font-bold">{tier.title}</p>
-                <p className="text-sm text-muted-foreground">
-                  {tier.nftRewardCount} NFT
-                </p>
-              </div>
-              <Button
-                onClick={() => handleContributeTier(tier.amount, idx)}
-                disabled={status !== "Ongoing"}
-              >
-                {status === "Ongoing" ? `${tier.amount} SOL` : "Closed"}
-              </Button>
             </div>
-          ))}
+          </div>
+
+          {/* ── Right: support & rewards ── */}
+          <aside className="bg-card border border-border rounded-lg p-4 sm:p-6 lg:p-8 space-y-6">
+            <h2 className="text-lg sm:text-xl font-semibold border-b border-border pb-2">
+              Support & Rewards
+            </h2>
+
+            <div className="space-y-4">
+              {meta.tiers.map((tier, idx) => (
+                <div
+                  key={idx}
+                  className="grid grid-cols-3 justify-between items-center py-4 gap-4 border-b last:border-b-0"
+                >
+                  <div className="col-span-2 flex flex-col justify-start items-start">
+                    <p className="font-bold text-lg">{tier.title}</p>
+                    <p className="text-sm text-muted-foreground">
+                      {tier.description}
+                    </p>
+                  </div>
+
+                  <Button
+                    variant="outline"
+                    onClick={() =>
+                      handleContributeTier(
+                        tier.amount,
+                        idx,
+                        tier.nftRewardCount
+                      )
+                    }
+                    disabled={
+                      status !== "Ongoing" ||
+                      onChain.amountRaised + tier.amount > onChain.goal
+                    }
+                    className="col-span-1 w-full border-emerald text-emerald hover:bg-emerald/10 relative overflow-hidden group"
+                  >
+                    {status === "Ongoing" ? `${tier.amount} SOL` : "Closed"}
+                  </Button>
+                </div>
+              ))}
+            </div>
+          </aside>
         </div>
       </div>
     </div>

@@ -1,34 +1,60 @@
 // src/pages/Profile.tsx
-import React, { useState, useEffect } from "react";
+import { useState, useEffect } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import { useAnchorWallet, useConnection } from "@solana/wallet-adapter-react";
 import { AnchorProvider, Program, utils } from "@project-serum/anchor";
-import { PublicKey, SystemProgram } from "@solana/web3.js";
+import { Connection, PublicKey, SystemProgram } from "@solana/web3.js";
 import { supabase } from "@/lib/supabase";
 import { IDL } from "../constants/idl";
 import { Button } from "@/components/ui/button";
 import CampaignCard from "@/components/campaign/CampaignCard";
 import { PROGRAM_ID as PDA_ID } from "../constants/programID";
+import type { SupabaseCampaign } from "@/types/supabase";
+import { getUnixTime } from "date-fns";
+import { FaSpinner } from "react-icons/fa6";
+import { toast } from "sonner";
 
 const PROGRAM_ID = new PublicKey(PDA_ID);
-const CLAIM_CONTRIBUTOR_OFFSET = 8 + 32; // Anchor discriminator + campaign Pubkey
+const HELIUS_RPC =
+  "https://devnet.helius-rpc.com/?api-key=44b3f1ce-e416-47ba-9971-1b5aa9009b6a";
 
 export default function Profile() {
   const { walletPublicKey } = useParams<{ walletPublicKey: string }>();
   const wallet = useAnchorWallet();
   const navigate = useNavigate();
-  const { connection } = useConnection();
+  const { connection: defaultConnection } = useConnection();
+  const helliusConnection = new Connection(HELIUS_RPC, {
+    commitment: "confirmed",
+  });
 
-  const [created, setCreated] = useState([]);
+  const [created, setCreated] = useState<SupabaseCampaign[]>([]);
   const [backed, setBacked] = useState([]);
+  const [claims, setClaims] = useState([]);
   const [loading, setLoading] = useState(true);
+  const tabs: ("active" | "backed" | "completed" | "funded" | "failed")[] = [
+    "active",
+    "backed",
+    "completed",
+    "funded",
+  ];
 
-  // Can toggle “Your Refunds” when viewing your own profile:
+  // which tab is showing?
+  const [activeTab, setActiveTab] = useState<
+    "active" | "backed" | "completed" | "failed" | "funded"
+  >("active");
+
   const isOwner = wallet?.publicKey?.toBase58() === walletPublicKey;
-
-  // Anchor program
-  const provider = new AnchorProvider(connection, wallet!, {});
+  if (isOwner) {
+    tabs.push("failed");
+  }
+  const provider = new AnchorProvider(helliusConnection, wallet!, {});
   const program = new Program(IDL, PROGRAM_ID, provider);
+
+  // helper: how much was raised on a created campaign?
+  const getCreatedRaised = (campaignId: string) =>
+    claims
+      .filter((c) => c.account.campaign.toBase58() === campaignId)
+      .reduce((sum, c) => sum + c.account.amount.toNumber() / 1e9, 0);
 
   useEffect(() => {
     if (!walletPublicKey) {
@@ -38,40 +64,34 @@ export default function Profile() {
     setLoading(true);
 
     (async () => {
-      // — Fetch campaigns _created_ by this wallet from Supabase
+      // 1) load your own created campaigns
       const { data: createdRows } = await supabase
         .from("campaigns")
         .select("*")
         .eq("owner", walletPublicKey);
       setCreated(createdRows || []);
 
-      // — Fetch on-chain Claim accounts where contributor == walletPublicKey
-      const claims = await program.account.claim.all([
-        {
-          memcmp: {
-            offset: CLAIM_CONTRIBUTOR_OFFSET,
-            bytes: walletPublicKey!,
-          },
-        },
-      ]);
+      // 2) load all claim accounts
+      const allClaims = await program.account.claim.all();
+      setClaims(allClaims);
 
-      // — Pull Supabase meta for each backed campaign
-      const campaignIds = claims.map((c) => c.account.campaign.toBase58());
+      // 3) load Supabase metadata for those you backed
+      const backedIds = allClaims.map((c) => c.account.campaign.toBase58());
       const { data: metaRows } = await supabase
         .from("campaigns")
         .select("*")
-        .in("id", campaignIds);
+        .in("id", backedIds);
 
-      // — Fetch on-chain state for each campaign
-      const onChainStates = await Promise.all(
-        claims.map((c) => program.account.campaign.fetch(c.account.campaign))
+      // 4) fetch on-chain for each backed campaign
+      const onChain = await Promise.all(
+        allClaims.map((c) => program.account.campaign.fetch(c.account.campaign))
       );
 
-      // — Zip into backed list
-      const backedList = claims.map((c, i) => {
+      // 5) zip into one backed list
+      const list = allClaims.map((c, i) => {
         const claim = c.account;
         const meta = metaRows!.find((m) => m.id === claim.campaign.toBase58())!;
-        const oc = onChainStates[i];
+        const oc = onChain[i];
         return {
           campaignPda: claim.campaign,
           contributedSol: claim.amount.toNumber() / 1e9,
@@ -79,21 +99,29 @@ export default function Profile() {
           metadata: meta,
           onChain: {
             amountRaised: oc.amountRaised.toNumber() / 1e9,
-            goal: oc.goal.toNumber(),
-            deadline: oc.deadline.toNumber(),
+            goal: oc.goal.toNumber() / 1e9,
+            deadline: oc.deadline.toNumber(), // unix secs
             finalized: oc.finalized,
           },
         };
       });
+      const deduped = list.filter(
+        (item, index, self) =>
+          index ===
+          self.findIndex(
+            (x) => x.campaignPda.toBase58() === item.campaignPda.toBase58()
+          )
+      );
 
-      setBacked(backedList);
+      setBacked(deduped);
       setLoading(false);
     })();
-  }, [walletPublicKey, connection]);
+  }, [walletPublicKey]);
 
+  // refund handler unchanged
   const handleClaimRefund = async (b) => {
     try {
-      const idBytes = utils.bytes.utf8.encode(b.metadata.campaign_id);
+      const idBytes = utils.bytes.utf8.encode(b.metadata.id);
       const [campaignPda] = await PublicKey.findProgramAddress(
         [
           Buffer.from("campaign"),
@@ -125,8 +153,7 @@ export default function Profile() {
           systemProgram: SystemProgram.programId,
         })
         .rpc();
-
-      alert("Refund successful! 💸");
+      toast.success("Refund successful! 💸");
       setBacked((prev) =>
         prev.map((x) =>
           x.campaignPda.equals(b.campaignPda) ? { ...x, refunded: true } : x
@@ -134,66 +161,178 @@ export default function Profile() {
       );
     } catch (err) {
       console.error(err);
-      alert("Refund failed: " + err.message);
+      toast.error("Refund failed: " + err.message);
     }
   };
 
-  if (loading) return <p className="p-8">Loading profile…</p>;
+  if (loading) {
+    return (
+      <h1 className="w-full flex items-center justify-center gap-4 text-2xl font-bold py-16">
+        Loading profile <FaSpinner className="animate-spin" />
+      </h1>
+    );
+  }
+
+  // time helpers
+  const now = Date.now();
+  const nowUnix = getUnixTime(new Date());
+
+  // Tab-specific filters
+  const activeCreated = created.filter(
+    (c) => new Date(c.expiration).getTime() > now
+  );
+  const archiveCreated = created.filter((c) => {
+    const ended = new Date(c.expiration).getTime() <= now;
+    const raised = getCreatedRaised(c.id);
+    return ended && raised >= c.goal_sol;
+  });
+
+  const activeBacked = backed.filter((b) => b.onChain.deadline > nowUnix);
+  const archiveBacked = backed.filter((b) => {
+    const ended = b.onChain.deadline <= nowUnix;
+    const funded = b.onChain.amountRaised >= b.onChain.goal;
+    return ended && funded;
+  });
+
+  const failedBacked = backed.filter((b) => {
+    if (b.onChain.deadline > 15097851037914) return;
+    const ended = b.onChain.deadline <= nowUnix;
+    const funded = b.onChain.amountRaised >= b.onChain.goal;
+    return ended && !funded && !b.refunded;
+  });
 
   return (
-    <div className="container mx-auto py-12 space-y-16">
-      <h1 className="text-3xl font-bold">Profile: {walletPublicKey}</h1>
+    <div className="container mx-auto py-12">
+      <h1 className="text-3xl text-center font-bold mb-6">
+        User: {walletPublicKey.slice(0, 5)}...{walletPublicKey.slice(-5)}
+      </h1>
 
-      {/* — Created Campaigns */}
-      <section>
-        <h2 className="text-2xl font-semibold mb-4">Created Campaigns</h2>
-        {created.length === 0 ? (
-          <p className="text-muted-foreground">No campaigns created yet.</p>
-        ) : (
-          <div className="grid gap-6 sm:grid-cols-1 md:grid-cols-2 lg:grid-cols-3">
-            {created.map((c) => (
-              <CampaignCard
-                key={c.id}
-                id={c.id}
-                title={c.title}
-                description={c.short_description}
-                imageUrl={c.image_urls?.[0] || c.image_url}
-                raised={0} // optionally fetch on-chain data
-                goal={c.goal_sol}
-                campaignId={c.id}
-                expiration={c.expiration}
-                daysLeft={Math.max(
-                  0,
-                  Math.ceil(
-                    (new Date(c.expiration).getTime() - Date.now()) / 86400000
-                  )
-                )}
-                creator={c.owner}
-              />
-            ))}
-          </div>
-        )}
-      </section>
+      {/* Tabs */}
+      <div className="flex border-b mb-8">
+        {tabs.map((tab) => (
+          <button
+            key={tab}
+            onClick={() => setActiveTab(tab)}
+            className={
+              "capitalize px-6 py-2 font-medium " +
+              (activeTab === tab
+                ? "border-b-2 border-emerald text-white"
+                : "text-muted-foreground")
+            }
+          >
+            {tab}
+          </button>
+        ))}
+      </div>
 
-      {/* — Backed Campaigns */}
-      <section>
-        <h2 className="text-2xl font-semibold mb-4">Backed Campaigns</h2>
-        {backed.length === 0 ? (
-          <p className="text-muted-foreground">No contributions yet.</p>
-        ) : (
-          <div className="grid gap-6 sm:grid-cols-1 md:grid-cols-2 lg:grid-cols-3">
-            {backed.map((b) => {
-              const now = Date.now() / 1000;
-              const expired = now > b.onChain.deadline;
-              const funded = b.onChain.amountRaised >= b.onChain.goal;
-              const status = expired
-                ? funded
-                  ? "Funded"
-                  : "Failed"
-                : "Ongoing";
+      {/* Tab Panels */}
+      {/* Active Created */}
+      {activeTab === "active" && (
+        <section className="mb-12">
+          <h2 className="text-2xl font-semibold mb-4">Active Campaigns</h2>
+          {activeCreated.length === 0 ? (
+            <p className="text-muted-foreground">None currently active.</p>
+          ) : (
+            <div className="grid gap-6 sm:grid-cols-1 md:grid-cols-2 lg:grid-cols-3">
+              {activeCreated.map((c) => (
+                <CampaignCard
+                  key={c.id}
+                  campaignId={c.id}
+                  id={c.id}
+                  title={c.title}
+                  description={c.short_description}
+                  imageUrl={c.image_urls?.[0] || c.image_url}
+                  raised={getCreatedRaised(c.id)}
+                  goal={c.goal_sol}
+                  expiration={c.expiration}
+                  daysLeft={Math.max(
+                    0,
+                    Math.ceil(
+                      (new Date(c.expiration).getTime() - now) / 86400000
+                    )
+                  )}
+                  creator={c.owner}
+                />
+              ))}
+            </div>
+          )}
+        </section>
+      )}
 
-              return (
-                <div key={b.campaignPda.toBase58()} className="relative">
+      {/* Active Backed */}
+      {activeTab === "backed" && (
+        <section>
+          <h2 className="text-2xl font-semibold mb-4">
+            Active Backed Campaigns
+          </h2>
+          {activeBacked.length === 0 ? (
+            <p className="text-muted-foreground">None currently active.</p>
+          ) : (
+            <div className="grid gap-6 sm:grid-cols-1 md:grid-cols-2 lg:grid-cols-3">
+              {activeBacked.map((b) => (
+                <CampaignCard
+                  key={b.campaignPda.toBase58()}
+                  id={b.campaignPda.toBase58()}
+                  campaignId={b.metadata.id}
+                  title={b.metadata.title}
+                  description={b.metadata.short_description}
+                  imageUrl={b.metadata.image_urls?.[0] || b.metadata.image_url}
+                  raised={b.contributedSol}
+                  goal={b.onChain.goal}
+                  daysLeft={Math.max(0, b.onChain.deadline - nowUnix)}
+                  expiration={b.metadata.expiration}
+                  creator={b.metadata.owner}
+                />
+              ))}
+            </div>
+          )}
+        </section>
+      )}
+
+      {/* Completed Created */}
+      {activeTab === "completed" && (
+        <section className="mb-12">
+          <h2 className="text-2xl font-semibold mb-4">Completed Campaigns</h2>
+          {archiveCreated.length === 0 ? (
+            <p className="text-muted-foreground">
+              No successful campaigns yet.
+            </p>
+          ) : (
+            <div className="grid gap-6 sm:grid-cols-1 md:grid-cols-2 lg:grid-cols-3">
+              {archiveCreated.map((c) => (
+                <CampaignCard
+                  key={c.id}
+                  id={c.id}
+                  campaignId={c.id}
+                  title={c.title}
+                  description={c.short_description}
+                  imageUrl={c.image_urls?.[0] || c.image_url}
+                  raised={getCreatedRaised(c.id)}
+                  goal={c.goal_sol}
+                  expiration={c.expiration}
+                  daysLeft={0}
+                  creator={c.owner}
+                />
+              ))}
+            </div>
+          )}
+        </section>
+      )}
+
+      {activeTab === "failed" && isOwner && (
+        <section>
+          <h2 className="text-2xl font-semibold mb-4">
+            Failed Campaigns (Claim Refunds)
+          </h2>
+          {failedBacked.length === 0 ? (
+            <p className="text-muted-foreground">No refunds available.</p>
+          ) : (
+            <div className="grid gap-6 sm:grid-cols-1 md:grid-cols-2 lg:grid-cols-3">
+              {failedBacked.map((b) => (
+                <div
+                  key={b.campaignPda.toBase58()}
+                  className="flex flex-col justify-between hover:shadow transition-shadow duration-200"
+                >
                   <CampaignCard
                     id={b.campaignPda.toBase58()}
                     campaignId={b.metadata.id}
@@ -202,77 +341,54 @@ export default function Profile() {
                     imageUrl={
                       b.metadata.image_urls?.[0] || b.metadata.image_url
                     }
-                    raised={b.onChain.amountRaised}
-                    expiration={b.metadata.expiration}
+                    raised={b.contributedSol}
                     goal={b.onChain.goal}
-                    daysLeft={Math.max(
-                      0,
-                      Math.ceil((b.onChain.deadline - now) / 86400)
-                    )}
+                    daysLeft={Math.max(0, b.onChain.deadline - nowUnix)}
+                    expiration={b.metadata.expiration}
                     creator={b.metadata.owner}
                   />
-                  <div className="absolute top-2 right-2 px-2 py-1 bg-black/70 text-xs rounded text-white">
-                    {status}
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-        )}
-      </section>
-
-      {/* — Refunds (only on your own profile) */}
-      {isOwner && (
-        <section>
-          <h2 className="text-2xl font-semibold mb-4">
-            Failed Campaigns (Claim Refunds)
-          </h2>
-          <div className="grid gap-6 sm:grid-cols-1 md:grid-cols-2 lg:grid-cols-3">
-            {backed
-              .filter((b) => {
-                const now = Date.now() / 1000;
-                const expired = now > b.onChain.deadline;
-                const funded = b.onChain.amountRaised >= b.onChain.goal;
-                return expired && !funded && !b.refunded;
-              })
-              .map((b) => (
-                <div
-                  key={b.campaignPda.toBase58()}
-                  className="p-5 bg-card border border-border rounded-lg flex flex-col justify-between hover:shadow transition-shadow duration-200"
-                >
-                  <div className="space-y-2">
-                    <h3 className="text-lg font-bold">{b.metadata.title}</h3>
-                    <p className="text-sm text-muted-foreground italic">
-                      This one ran out of steam... but your contribution is
-                      safe!
-                    </p>
-                    <p className="text-md">
-                      You can reclaim{" "}
-                      <span className="font-semibold">
-                        {b.contributedSol} SOL
-                      </span>
-                      .
-                    </p>
-                  </div>
                   <Button
                     onClick={() => handleClaimRefund(b)}
-                    className="mt-4 bg-emerald hover:bg-emerald/80 transition text-white"
+                    className="w-full mt-4 bg-emerald hover:bg-emerald/80 transition text-white"
                   >
-                    Claim Your Refund
+                    Claim Refund
                   </Button>
                 </div>
               ))}
-            {backed.filter((b) => {
-              const now = Date.now() / 1000;
-              const expired = now > b.onChain.deadline;
-              const funded = b.onChain.amountRaised >= b.onChain.goal;
-              return expired && !funded && !b.refunded;
-            }).length === 0 && (
-              <p className="text-muted-foreground col-span-full">
-                No refunds available.
-              </p>
-            )}
-          </div>
+            </div>
+          )}
+        </section>
+      )}
+
+      {/* Funded Backed */}
+      {activeTab === "funded" && (
+        <section className="mb-12">
+          <h2 className="text-2xl font-semibold mb-4">
+            Backed Campaigns (Funded)
+          </h2>
+          {archiveBacked.length === 0 ? (
+            <p className="text-muted-foreground">
+              No funded campaigns backed yet.
+            </p>
+          ) : (
+            <div className="grid gap-6 sm:grid-cols-1 md:grid-cols-2 lg:grid-cols-3">
+              {archiveBacked.map((b) => (
+                <CampaignCard
+                  key={b.campaignPda.toBase58()}
+                  id={b.campaignPda.toBase58()}
+                  campaignId={b.metadata.id}
+                  title={b.metadata.title}
+                  description={b.metadata.short_description}
+                  imageUrl={b.metadata.image_urls?.[0] || b.metadata.image_url}
+                  raised={b.contributedSol}
+                  goal={b.onChain.goal}
+                  daysLeft={0}
+                  expiration={b.metadata.expiration}
+                  creator={b.metadata.owner}
+                />
+              ))}
+            </div>
+          )}
         </section>
       )}
     </div>
