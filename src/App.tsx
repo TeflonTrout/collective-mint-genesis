@@ -65,12 +65,12 @@ const App = () => {
                   <Route path="/admin" element={<AdminPage />} />
                 </Routes>
                 <Footer />
+                <Analytics />
               </BrowserRouter>
             </TooltipProvider>
           </WalletModalProvider>
         </WalletProvider>
       </ConnectionProvider>
-      <Analytics />
     </QueryClientProvider>
   );
 };
