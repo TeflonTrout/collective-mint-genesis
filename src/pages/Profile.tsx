@@ -126,7 +126,7 @@ export default function Profile() {
         [
           Buffer.from("campaign"),
           new PublicKey(b.metadata.owner).toBuffer(),
-          Buffer.from(idBytes),
+          Buffer.from(b.metadata.id),
         ],
         PROGRAM_ID
       );

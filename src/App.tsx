@@ -28,6 +28,7 @@ import Footer from "./components/layout/Footer";
 import Campaign from "./pages/Campaign";
 import Profile from "./pages/Profile";
 import AdminPage from "./pages/Admin";
+import "./polyfills.ts";
 
 const network = "https://api.devnet.solana.com";
 
